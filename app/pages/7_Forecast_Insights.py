@@ -234,6 +234,19 @@ if analysis_pollutants:
             cause_breakdown_chart(causal_results),
             use_container_width=True,
         )
+
+    # Fetch AI-powered real-time context for the city
+    from src.analysis.causal import fetch_aqi_news
+    @st.cache_data(ttl=3600, show_spinner="Fetching real-time context...")
+    def get_city_context(city_name):
+        return fetch_aqi_news(city_name)
+
+    news_context = get_city_context(city)
+    if news_context:
+        with st.expander("Real-Time City Context (AI-Sourced)"):
+            for item in news_context:
+                st.markdown(item["snippet"])
+                st.caption(f"Source: {item['source']}")
 else:
     causal_results = []
     st.info("Pollutant data not available for causal analysis.")

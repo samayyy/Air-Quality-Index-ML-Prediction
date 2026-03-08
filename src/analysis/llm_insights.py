@@ -47,6 +47,12 @@ def generate_forecast_narrative(forecast_data: list[dict],
     if client is None:
         return _template_forecast_narrative(forecast_data, causal_analysis, city)
 
+    # Get city profile for context
+    from src.analysis.causal import CITY_PROFILES
+    city_profile = CITY_PROFILES.get(city, {})
+    city_context = city_profile.get("context", f"a major Indian city")
+    primary_sources = city_profile.get("primary_sources", [])
+
     # Build structured prompt
     forecast_summary = []
     for f in forecast_data:
@@ -77,7 +83,11 @@ def generate_forecast_narrative(forecast_data: list[dict],
         for c in causal_analysis[:5]
     )
 
+    primary_str = ", ".join(primary_sources) if primary_sources else "various urban sources"
+
     prompt = f"""You are an air quality expert analyzing AQI data for {city}, India.
+
+City Context: {city} is {city_context}. Its primary pollution sources are: {primary_str}.
 
 7-Day AQI Forecast:
 {chr(10).join(forecast_summary)}
@@ -85,10 +95,17 @@ def generate_forecast_narrative(forecast_data: list[dict],
 Identified Pollution Causes:
 {causes_str}
 
+IMPORTANT: Base your analysis on the ACTUAL pollution sources for {city}.
+Do NOT mention crop burning or stubble burning unless it appears in the identified causes above.
+Focus on the real drivers: {primary_str}.
+
 Write a concise 2-3 paragraph analysis that:
 1. Summarizes the AQI trend over the forecast period (improving, worsening, stable)
-2. Explains WHY the AQI is at this level, citing specific causes and weather factors
+2. Explains WHY the AQI is at this level, citing the specific causes identified and weather factors
 3. Notes what to expect in coming days based on weather changes
+
+Also briefly mention any current real-world factors affecting {city}'s air quality
+(e.g., ongoing metro construction, industrial activity, traffic patterns, weather patterns).
 
 Keep the tone informative but accessible. Use specific numbers from the data.
 Do not use markdown headers or bullet points — write in flowing paragraphs."""
@@ -117,14 +134,22 @@ def generate_health_advisory(aqi: float, category: str,
 
     causes_str = ", ".join(c["cause"] for c in causes[:3])
 
+    # Get city context
+    from src.analysis.causal import CITY_PROFILES
+    city_profile = CITY_PROFILES.get(city, {})
+    city_context = city_profile.get("context", "a major Indian city")
+
     prompt = f"""You are a public health advisor for {city}, India.
+{city} is {city_context}.
 
 Current AQI: {aqi} ({category})
 Main causes: {causes_str}
 
 Write a brief (3-4 sentences) conversational health advisory for residents.
 Include: who should be most careful, what to do/avoid today, and one practical tip.
-Be specific to the causes mentioned. Do not use bullet points."""
+Be specific to the causes mentioned and the city's characteristics.
+Do NOT mention crop burning or stubble burning unless it is listed in the main causes above.
+Do not use bullet points."""
 
     try:
         response = client.models.generate_content(
