@@ -34,6 +34,15 @@ jupyterlab>=4.0
 ipykernel
 ipywidgets
 
+# Web App
+streamlit>=1.30
+streamlit-autorefresh>=1.0
+requests>=2.31
+python-dotenv>=1.0
+
+# LLM Insights
+google-genai>=1.0
+
 # Utilities
 joblib
 category_encoders

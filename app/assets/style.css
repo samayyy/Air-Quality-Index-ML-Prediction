@@ -1,0 +1,86 @@
+/* AQI Color Scheme */
+:root {
+    --aqi-good: #009966;
+    --aqi-satisfactory: #ffde33;
+    --aqi-moderate: #ff9933;
+    --aqi-poor: #cc0033;
+    --aqi-very-poor: #660099;
+    --aqi-severe: #7e0023;
+}
+
+/* Metric cards */
+.metric-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    padding: 1.2rem;
+    color: white;
+    text-align: center;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.metric-card h3 {
+    margin: 0;
+    font-size: 0.9rem;
+    opacity: 0.9;
+}
+
+.metric-card .value {
+    font-size: 2rem;
+    font-weight: bold;
+    margin: 0.3rem 0;
+}
+
+.metric-card .subtitle {
+    font-size: 0.8rem;
+    opacity: 0.8;
+}
+
+/* AQI Category badges */
+.aqi-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: white;
+}
+
+.aqi-good { background-color: var(--aqi-good); }
+.aqi-satisfactory { background-color: var(--aqi-satisfactory); color: #333; }
+.aqi-moderate { background-color: var(--aqi-moderate); }
+.aqi-poor { background-color: var(--aqi-poor); }
+.aqi-very-poor { background-color: var(--aqi-very-poor); }
+.aqi-severe { background-color: var(--aqi-severe); }
+
+/* Model comparison table */
+.model-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.model-table th {
+    background-color: #1f2937;
+    color: white;
+    padding: 10px;
+    text-align: left;
+}
+
+.model-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+/* Sidebar styling */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+}
+
+/* Page title */
+.page-title {
+    font-size: 2rem;
+    font-weight: bold;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 1rem;
+}

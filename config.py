@@ -81,3 +81,80 @@ TEST_SIZE = 0.15
 VAL_SIZE = 0.15
 N_OPTUNA_TRIALS = 50
 EARLY_STOPPING_ROUNDS = 50
+
+# === Tuned Models ===
+MODELS_TUNED = MODELS_DIR / "tuned"
+
+# === WAQI API ===
+WAQI_BASE_URL = "https://api.waqi.info"
+
+# Map CPCB cities to WAQI station search terms
+WAQI_CITY_MAP = {
+    "Ahmedabad": "ahmedabad",
+    "Aizawl": "aizawl",
+    "Amaravati": "amaravati",
+    "Amritsar": "amritsar",
+    "Bengaluru": "bengaluru",
+    "Bhopal": "bhopal",
+    "Brajrajnagar": "brajrajnagar",
+    "Chandigarh": "chandigarh",
+    "Chennai": "chennai",
+    "Coimbatore": "coimbatore",
+    "Delhi": "delhi",
+    "Ernakulam": "ernakulam",
+    "Gurugram": "gurugram",
+    "Guwahati": "guwahati",
+    "Hyderabad": "hyderabad",
+    "Jaipur": "jaipur",
+    "Jorapokhar": "jorapokhar",
+    "Kochi": "kochi",
+    "Kolkata": "kolkata",
+    "Lucknow": "lucknow",
+    "Mumbai": "mumbai",
+    "Patna": "patna",
+    "Shillong": "shillong",
+    "Talcher": "talcher",
+    "Thiruvananthapuram": "thiruvananthapuram",
+    "Visakhapatnam": "visakhapatnam",
+}
+
+# === Deep Learning ===
+DL_WINDOW_SIZE = 14
+DL_SEQUENCE_FEATURES = ["PM2.5", "PM10", "NO2", "SO2", "CO", "O3", "NH3"]
+
+# === Open-Meteo Weather API (free, no key needed) ===
+OPEN_METEO_BASE_URL = "https://api.open-meteo.com/v1/forecast"
+FORECAST_DAYS = 7
+
+# === City Coordinates (lat, lon) for weather lookups ===
+CITY_COORDINATES = {
+    "Ahmedabad": (23.0225, 72.5714),
+    "Aizawl": (23.7271, 92.7176),
+    "Amaravati": (16.5062, 80.6480),
+    "Amritsar": (31.6340, 74.8723),
+    "Bengaluru": (12.9716, 77.5946),
+    "Bhopal": (23.2599, 77.4126),
+    "Brajrajnagar": (21.8167, 83.9167),
+    "Chandigarh": (30.7333, 76.7794),
+    "Chennai": (13.0827, 80.2707),
+    "Coimbatore": (11.0168, 76.9558),
+    "Delhi": (28.7041, 77.1025),
+    "Ernakulam": (9.9816, 76.2999),
+    "Gurugram": (28.4595, 77.0266),
+    "Guwahati": (26.1445, 91.7362),
+    "Hyderabad": (17.3850, 78.4867),
+    "Jaipur": (26.9124, 75.7873),
+    "Jorapokhar": (23.7000, 86.4167),
+    "Kochi": (9.9312, 76.2673),
+    "Kolkata": (22.5726, 88.3639),
+    "Lucknow": (26.8467, 80.9462),
+    "Mumbai": (19.0760, 72.8777),
+    "Patna": (25.6093, 85.1376),
+    "Shillong": (25.5788, 91.8933),
+    "Talcher": (20.9500, 85.2333),
+    "Thiruvananthapuram": (8.5241, 76.9366),
+    "Visakhapatnam": (17.6868, 83.2185),
+}
+
+# === Google Gemini API ===
+GEMINI_MODEL = "gemini-3.1-flash-lite-preview"

@@ -26,3 +26,8 @@ dependencies:
     - kagglehub
     - missingno
     - category_encoders
+    - streamlit>=1.30
+    - streamlit-autorefresh>=1.0
+    - requests>=2.31
+    - python-dotenv>=1.0
+    - google-genai>=1.0
