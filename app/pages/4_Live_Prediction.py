@@ -192,9 +192,16 @@ else:  # Live City Data
                             except Exception:
                                 pass
 
-                        # Run predictions
+                        # Run predictions (with city medians for better lag estimation)
                         if predictor:
-                            result = predictor.predict_from_pollutants(pollutants)
+                            city_meds = None
+                            try:
+                                from src.data.api_client import get_city_medians
+                                all_meds = get_city_medians()
+                                city_meds = all_meds.get(city)
+                            except Exception:
+                                pass
+                            result = predictor.predict_from_pollutants(pollutants, city_medians=city_meds)
 
                             st.divider()
                             if predictor._loaded:
@@ -203,29 +210,34 @@ else:  # Live City Data
                                     f"Classification: `{predictor.cls_model_name}`"
                                 )
 
-                            # Show gauges on US-EPA scale (matches what people see online)
+                            # Show gauges: reported vs ML predicted
                             col_g1, col_g2, col_g3 = st.columns(3)
                             with col_g1:
                                 if waqi_aqi and str(waqi_aqi).replace("-", "").isdigit():
                                     st.plotly_chart(aqi_gauge(int(waqi_aqi), "WAQI Station AQI"),
                                                     use_container_width=True)
+                                    st.caption("Live value (US-EPA scale)")
                             with col_g2:
-                                epa = result.get("epa_aqi")
-                                if epa:
-                                    st.plotly_chart(aqi_gauge(epa, "Our Prediction (EPA Scale)"),
+                                ml_cpcb = result.get("ml_aqi")
+                                if ml_cpcb:
+                                    ml_title = f"ML Predicted ({predictor.reg_model_name.split('(')[0].strip()})"
+                                    st.plotly_chart(aqi_gauge(ml_cpcb, ml_title),
                                                     use_container_width=True)
-                                elif result.get("cpcb_aqi"):
-                                    st.plotly_chart(aqi_gauge(result["cpcb_aqi"], "CPCB Formula AQI"),
-                                                    use_container_width=True)
+                                    st.caption("ML prediction (Indian CPCB scale)")
+                                else:
+                                    st.info("ML model prediction not available")
                             with col_g3:
-                                if result.get("ml_aqi"):
-                                    ml_title = f"ML ({predictor.reg_model_name.split('(')[0].strip()})"
-                                    st.plotly_chart(aqi_gauge(result["ml_aqi"], ml_title + " (CPCB)"),
+                                ml_epa = result.get("ml_aqi_epa")
+                                if ml_epa:
+                                    st.plotly_chart(aqi_gauge(ml_epa, "ML Predicted (EPA)"),
                                                     use_container_width=True)
+                                    st.caption("Converted to EPA scale via dominant pollutant")
 
                             st.caption(
-                                "WAQI Station and Our Prediction use the **US-EPA AQI scale** (same as Google/AQICN/IQAir). "
-                                "ML model outputs use the Indian CPCB scale."
+                                "**WAQI Station** shows the live reported value on the US-EPA scale (same as Google/AQICN). "
+                                "**ML Predicted** shows our LightGBM model's prediction on the Indian CPCB scale. "
+                                "**ML (EPA)** converts the prediction to EPA scale for comparison — accurate when the same "
+                                "pollutant dominates on both scales (PM2.5/PM10 cities), approximate otherwise."
                             )
 
                             model_agreement_indicator(result.get("model_agreement"))

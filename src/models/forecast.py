@@ -16,8 +16,10 @@ from src.data.api_client import (
 )
 from src.data.weather_client import fetch_weather_forecast, get_weather_adjustment_factors
 
-# Maximum allowed day-to-day AQI change (30% cap prevents wild spikes)
-MAX_DAY_CHANGE_RATIO = 0.30
+# Maximum allowed day-to-day AQI change (50% cap prevents wild spikes
+# while allowing realistic variation — 30% was too aggressive and locked
+# forecasts into artificially low trajectories)
+MAX_DAY_CHANGE_RATIO = 0.50
 
 
 class AQIForecaster:
@@ -75,12 +77,13 @@ class AQIForecaster:
             # 2. Get weather for this day
             weather = self._get_weather_day(weather_forecast, target_date)
 
-            # 3. Fill missing pollutants (medians preferred over current to avoid anomaly propagation)
+            # 3. Fill missing pollutants with day-aware blending
+            #    Near days trust current readings; far days regress to median
             adjustment = get_weather_adjustment_factors(weather) if weather else {
                 "pm_factor": 1.0, "gas_factor": 1.0
             }
             pollutants = self._fill_missing_pollutants(
-                pollutants, medians, current, adjustment
+                pollutants, medians, current, adjustment, day_offset=day_offset
             )
 
             # 4. Run through ML predictor + EPA AQI
@@ -131,9 +134,10 @@ class AQIForecaster:
         # If we have a current anchor, blend day 1 toward it
         if anchor_aqi and forecasts[0].get("predicted_aqi"):
             raw_day1 = forecasts[0]["predicted_aqi"]
-            # Weighted blend: 40% current anchor + 60% model prediction
-            # This prevents huge jumps from "today" to "tomorrow"
-            blended = anchor_aqi * 0.4 + raw_day1 * 0.6
+            # Weighted blend: 60% current anchor + 40% model prediction
+            # Tomorrow's AQI should be close to today's — the model prediction
+            # may be suppressed due to missing pollutants filled with medians
+            blended = anchor_aqi * 0.6 + raw_day1 * 0.4
             forecasts[0]["predicted_aqi"] = round(blended, 2)
 
         # Cap day-to-day changes
@@ -215,18 +219,24 @@ class AQIForecaster:
 
     def _fill_missing_pollutants(self, pollutants: dict, medians: dict,
                                   current: dict | None,
-                                  adjustment: dict) -> dict:
+                                  adjustment: dict,
+                                  day_offset: int = 1) -> dict:
         """
-        Fill missing pollutant values using a weighted blend of:
-        - Historical city medians (stable baseline, preferred)
-        - Current readings (only as minor supplement)
-        Then apply weather adjustment factors.
+        Fill missing pollutant values using a day-aware weighted blend:
+        - Day 1: 80% current + 20% median (trust today's readings)
+        - Day 7: 30% current + 70% median (regress to historical baseline)
+        - Linear interpolation between
 
-        Uses 70% median + 30% current to avoid propagating anomalous
-        current readings into the forecast.
+        Weather adjustment factors are applied ONLY to gap-filled values,
+        not to WAQI-forecasted values (which already account for conditions).
         """
         pm_factor = adjustment.get("pm_factor", 1.0)
         gas_factor = adjustment.get("gas_factor", 1.0)
+
+        # Day-aware blend ratio: current_weight decreases with forecast horizon
+        # Day 1: 0.80, Day 2: 0.72, Day 3: 0.63, ... Day 7: 0.30
+        current_weight = max(0.30, 0.80 - (day_offset - 1) * 0.083)
+        median_weight = 1.0 - current_weight
 
         current_pollutants = {}
         if current and current.get("pollutants"):
@@ -234,11 +244,11 @@ class AQIForecaster:
 
         for p in AQI_POLLUTANTS:
             if p in pollutants and pollutants[p] is not None:
-                # Apply weather adjustment to existing WAQI forecast values
-                factor = pm_factor if p in ("PM2.5", "PM10") else gas_factor
-                pollutants[p] = round(pollutants[p] * factor, 2)
+                # WAQI forecast values: do NOT apply weather adjustment
+                # (WAQI forecasts already incorporate weather conditions)
+                pass
             else:
-                # Blend median (stable) + current (recent) for missing pollutants
+                # Blend current + median with day-aware weights
                 median_val = medians.get(p)
                 current_val = current_pollutants.get(p)
 
@@ -249,15 +259,15 @@ class AQIForecaster:
                     current_val = None
 
                 if median_val is not None and current_val is not None:
-                    # Weighted blend: 70% median + 30% current
-                    base = float(median_val) * 0.7 + float(current_val) * 0.3
-                elif median_val is not None:
-                    base = float(median_val)
+                    base = float(current_val) * current_weight + float(median_val) * median_weight
                 elif current_val is not None:
                     base = float(current_val)
+                elif median_val is not None:
+                    base = float(median_val)
                 else:
                     continue
 
+                # Apply weather adjustment ONLY to gap-filled values
                 factor = pm_factor if p in ("PM2.5", "PM10") else gas_factor
                 pollutants[p] = round(base * factor, 2)
 

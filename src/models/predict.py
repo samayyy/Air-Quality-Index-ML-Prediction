@@ -52,6 +52,48 @@ class AQIPredictor:
 
         self._loaded = True
 
+    @staticmethod
+    def _cpcb_to_epa(cpcb_aqi: float, dominant_pollutant: str) -> float | None:
+        """
+        Convert a CPCB-scale AQI to EPA-scale AQI via the dominant pollutant.
+
+        Steps:
+        1. Reverse CPCB AQI → concentration (using CPCB breakpoints)
+        2. Forward concentration → EPA AQI (using EPA breakpoints)
+
+        This gives an accurate cross-scale conversion because both scales
+        are piecewise linear functions of the same underlying concentration.
+        """
+        from config import AQI_BREAKPOINTS as CPCB_BP
+        from src.data.api_client import concentration_to_epa_aqi
+
+        if dominant_pollutant not in CPCB_BP:
+            return None
+
+        # Step 1: Reverse CPCB AQI → concentration
+        breakpoints = CPCB_BP[dominant_pollutant]
+        concentration = None
+        for c_low, c_high, i_low, i_high in breakpoints:
+            if i_low <= cpcb_aqi <= i_high:
+                concentration = (cpcb_aqi - i_low) / (i_high - i_low) * (c_high - c_low) + c_low
+                break
+
+        if concentration is None:
+            # Above max breakpoint — extrapolate from last range
+            c_low, c_high, i_low, i_high = breakpoints[-1]
+            if cpcb_aqi > i_high:
+                concentration = (cpcb_aqi - i_low) / (i_high - i_low) * (c_high - c_low) + c_low
+
+        if concentration is None:
+            return None
+
+        # Step 2: Forward concentration → EPA AQI
+        # Note: CPCB concentrations are in μg/m³ (PM, gases) or mg/m³ (CO)
+        # EPA breakpoints for gases use ppb/ppm, but concentration_to_epa_aqi()
+        # expects μg/m³ input and handles the conversion internally
+        epa_aqi = concentration_to_epa_aqi(dominant_pollutant, concentration)
+        return round(epa_aqi, 1) if epa_aqi else None
+
     def _compute_cpcb_aqi(self, pollutants: dict) -> tuple:
         """Compute AQI using CPCB formula from pollutant dict."""
         sub_indices = {}
@@ -70,12 +112,15 @@ class AQIPredictor:
         category = categorize_aqi(aqi_val)
         return aqi_val, category, dominant
 
-    def predict_from_pollutants(self, pollutants: dict) -> dict:
+    def predict_from_pollutants(self, pollutants: dict,
+                                city_medians: dict = None) -> dict:
         """
         Predict AQI from a dict of pollutant concentrations.
 
         Args:
             pollutants: e.g. {"PM2.5": 85, "PM10": 120, "NO2": 40, ...}
+            city_medians: optional historical medians for the city (improves
+                          lag/rolling feature estimation for ML models)
 
         Returns:
             dict with cpcb_aqi, ml_regression, ml_classification, etc.
@@ -108,20 +153,20 @@ class AQIPredictor:
         result["epa_dominant"] = epa_dominant
 
         # ML predictions need a feature vector
-        # For single-point prediction, we create a minimal feature vector
-        # with zeros for lag/rolling features (best effort)
+        ml_aqi_cpcb = None
         if self.reg_model is not None:
             try:
-                features = self._build_feature_vector(pollutants)
+                features = self._build_feature_vector(pollutants, city_medians)
                 if features is not None:
                     pred = self.reg_model.predict(features.reshape(1, -1))[0]
-                    result["ml_aqi"] = round(float(pred), 2)
+                    ml_aqi_cpcb = round(float(pred), 2)
+                    result["ml_aqi"] = ml_aqi_cpcb
             except Exception as e:
                 result["ml_error"] = str(e)
 
         if self.cls_model is not None:
             try:
-                features = self._build_feature_vector(pollutants)
+                features = self._build_feature_vector(pollutants, city_medians)
                 if features is not None:
                     pred = self.cls_model.predict(features.reshape(1, -1))[0]
                     bucket_order = list(AQI_CATEGORIES.keys())
@@ -129,16 +174,33 @@ class AQIPredictor:
             except Exception as e:
                 result["cls_error"] = str(e)
 
+        # Convert ML output from CPCB scale → EPA scale
+        # Use the EPA dominant pollutant (not CPCB dominant) for conversion,
+        # since we want to match the EPA scale. Fall back to CPCB dominant.
+        if ml_aqi_cpcb:
+            # Prefer EPA dominant (what WAQI uses), then CPCB dominant
+            conv_pollutant = result.get("epa_dominant") or result.get("cpcb_dominant")
+            if conv_pollutant:
+                ml_epa = self._cpcb_to_epa(ml_aqi_cpcb, conv_pollutant)
+                if ml_epa is not None:
+                    result["ml_aqi_epa"] = ml_epa
+
         # Model agreement
         if result["cpcb_category"] and result["ml_category"]:
             result["model_agreement"] = result["cpcb_category"] == result["ml_category"]
 
         return result
 
-    def _build_feature_vector(self, pollutants: dict) -> np.ndarray | None:
+    def _build_feature_vector(self, pollutants: dict,
+                               city_medians: dict = None) -> np.ndarray | None:
         """
         Build a feature vector from pollutant values.
-        Uses zeros for lag/rolling features (single-point prediction).
+
+        For lag and rolling features, uses current values as proxy for
+        short-term lags (1-3 days) and blends toward city medians for
+        longer lags (7-30 days) when available. This prevents the model
+        from seeing unrealistic "30-day rolling mean" values that exactly
+        equal the current reading.
         """
         # Start with raw pollutant values
         raw = []
@@ -156,21 +218,44 @@ class AQIPredictor:
         # City encoded (default 0)
         city_encoded = [0]
 
-        # Lag features: use current pollutant values as proxy
+        # Lag features: short lags use current; longer lags blend with median
+        # LAG_DAYS = [1, 2, 3, 7, 14, 30]
         lag_features = []
         for col in POLLUTANT_COLS:
             val = pollutants.get(col, 0.0) or 0.0
-            for _ in LAG_DAYS:
-                lag_features.append(val)
+            median = None
+            if city_medians:
+                m = city_medians.get(col)
+                if m is not None and not (isinstance(m, float) and np.isnan(m)):
+                    median = float(m)
+            if median is None:
+                median = val  # fallback: use current for all lags
+            for lag in LAG_DAYS:
+                if lag <= 3:
+                    lag_features.append(val)  # recent: trust current
+                else:
+                    # Longer lags: blend toward median
+                    lag_features.append(val * 0.5 + median * 0.5)
 
-        # Rolling features: use current value as proxy
+        # Rolling features: short windows use current; longer blend with median
         rolling_cols = ["PM2.5", "PM10", "NO2", "SO2", "CO", "O3"]
         rolling_features = []
         for col in rolling_cols:
             val = pollutants.get(col, 0.0) or 0.0
-            for _ in ROLLING_WINDOWS:
-                rolling_features.append(val)  # mean
-                rolling_features.append(0.0)  # std
+            median = None
+            if city_medians:
+                m = city_medians.get(col)
+                if m is not None and not (isinstance(m, float) and np.isnan(m)):
+                    median = float(m)
+            if median is None:
+                median = val
+            for window in ROLLING_WINDOWS:
+                if window <= 7:
+                    rolling_features.append(val)  # mean
+                else:
+                    rolling_features.append(val * 0.5 + median * 0.5)
+                # Std: small positive value (not zero — zero std is unrealistic)
+                rolling_features.append(abs(val - median) * 0.3 if val != median else val * 0.1)
 
         # Ratios
         pm25 = pollutants.get("PM2.5", 0.0) or 0.0
